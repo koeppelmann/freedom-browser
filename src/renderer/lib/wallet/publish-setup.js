@@ -15,8 +15,7 @@ import { topUpXdai, topUpXbzz, GNOSIS_CHAIN_ID, XDAI_TOKEN_KEY, XBZZ_TOKEN_KEY }
 import {
   fundNodeOneTx,
   waitForTx,
-  getSpotXdaiPerBzz,
-  expectedBzzOut,
+  getQuote,
   formatBzz,
   formatXdai,
 } from './swarm-funder-client.js';
@@ -73,7 +72,6 @@ const ONECLICK_PRESETS = [
 ];
 
 let selectedPresetKey = 'recommended';
-let cachedSpot = null;
 let pollInterval = null;
 let cachedBeeWalletAddress = null;
 let lastEvaluation = null;
@@ -119,17 +117,22 @@ export function initPublishSetup() {
   stepFundXbzzBtn?.addEventListener('click', () => handleFundXbzz());
   stepStampsBtn?.addEventListener('click', () => handleBuyStamps());
 
-  // One-click setup
-  oneClickPanel = document.getElementById('publish-oneclick');
-  oneClickPresets = document.getElementById('publish-oneclick-presets');
-  oneClickQuote = document.getElementById('publish-oneclick-quote');
-  oneClickBtn = document.getElementById('publish-oneclick-btn');
-  oneClickStatus = document.getElementById('publish-oneclick-status');
-  oneClickError = document.getElementById('publish-oneclick-error');
-  oneClickDetail = document.getElementById('publish-oneclick-detail');
+  // One-click setup — wrapped so a renderer-side error here can never
+  // brick the rest of publish-setup init.
+  try {
+    oneClickPanel = document.getElementById('publish-oneclick');
+    oneClickPresets = document.getElementById('publish-oneclick-presets');
+    oneClickQuote = document.getElementById('publish-oneclick-quote');
+    oneClickBtn = document.getElementById('publish-oneclick-btn');
+    oneClickStatus = document.getElementById('publish-oneclick-status');
+    oneClickError = document.getElementById('publish-oneclick-error');
+    oneClickDetail = document.getElementById('publish-oneclick-detail');
 
-  buildOneClickPresets();
-  oneClickBtn?.addEventListener('click', () => handleOneClick());
+    buildOneClickPresets();
+    oneClickBtn?.addEventListener('click', () => handleOneClick());
+  } catch (err) {
+    console.error('[PublishSetup] One-click init failed:', err);
+  }
 }
 
 function buildOneClickPresets() {
@@ -170,13 +173,10 @@ async function refreshOneClickQuote() {
   if (!oneClickQuote) return;
   const p = getSelectedPreset();
   try {
-    if (cachedSpot === null) {
-      cachedSpot = await getSpotXdaiPerBzz();
-    }
-    const bzzOut = expectedBzzOut(p.xdaiForSwap, cachedSpot);
+    const quote = await getQuote(p.xdaiForSwap);
     const totalXdai = p.xdaiForSwap + p.xdaiForBee;
     oneClickQuote.textContent =
-      `Swap ${formatXdai(p.xdaiForSwap)} xDAI  →  ~${formatBzz(bzzOut)} xBZZ\n` +
+      `Swap ${formatXdai(p.xdaiForSwap)} xDAI  →  ~${formatBzz(quote.expectedBzzPlur)} xBZZ\n` +
       `Forward ${formatXdai(p.xdaiForBee)} xDAI to Bee wallet\n` +
       `Total from main wallet: ${formatXdai(totalXdai)} xDAI + gas`;
     oneClickQuote.classList.remove('hidden');
@@ -263,33 +263,25 @@ function hideOneClickError() {
 function updateOneClickVisibility(evaluation) {
   if (!oneClickPanel) return;
 
-  // Show the one-click banner while the node still needs funding
-  // (i.e., chequebook not yet deployed, or xBZZ not yet present).
-  // Hide once both are satisfied — from that point the checklist covers
-  // only stamp purchase which happens inside the Bee API.
-  const needsFunding = !evaluation?.chequebookDeployed || !evaluation?.hasXbzz;
+  // Always show the banner when the node is running — serves both initial
+  // funding and later top-ups (BZZ runs out as stamps expire). Hide only
+  // while the node is still starting up.
   const nodeRunning = evaluation?.nodeState === 'running';
+  oneClickPanel.classList.toggle('hidden', !nodeRunning);
 
-  oneClickPanel.classList.toggle('hidden', !(needsFunding && nodeRunning));
-
-  // Keep detail label accurate.
-  if (oneClickDetail && needsFunding && nodeRunning) {
-    if (!evaluation?.hasXdai) {
+  if (oneClickDetail && nodeRunning) {
+    if (!evaluation?.chequebookDeployed || !evaluation?.hasXbzz) {
       oneClickDetail.textContent =
         'Fund your Bee node in a single transaction from your main wallet: swap to xBZZ, forward xDAI for chequebook deploy, done.';
-    } else if (!evaluation?.hasXbzz) {
-      oneClickDetail.textContent =
-        'Fund your Bee node with xBZZ in one transaction from your main wallet.';
     } else {
       oneClickDetail.textContent =
-        'One-transaction swap + fund path.';
+        'Top up your Bee node in a single transaction: swap xDAI for more xBZZ, optionally add xDAI to the node wallet.';
     }
   }
 
   if (oneClickBtn) oneClickBtn.disabled = false;
 
-  // Refresh quote on first display.
-  if (needsFunding && nodeRunning && oneClickQuote && oneClickQuote.classList.contains('hidden')) {
+  if (nodeRunning && oneClickQuote && oneClickQuote.classList.contains('hidden')) {
     refreshOneClickQuote();
   }
 }

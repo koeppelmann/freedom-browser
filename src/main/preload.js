@@ -338,6 +338,12 @@ contextBridge.exposeInMainWorld('swarmNode', {
   getUploadStatus: (tagUid) => ipcRenderer.invoke('swarm:get-upload-status', tagUid),
 });
 
+contextBridge.exposeInMainWorld('swarmFunder', {
+  getConfig: () => ipcRenderer.invoke('swarm-funder:get-config'),
+  getQuote: (params) => ipcRenderer.invoke('swarm-funder:get-quote', params),
+  prepareTx: (params) => ipcRenderer.invoke('swarm-funder:prepare-tx', params),
+});
+
 contextBridge.exposeInMainWorld('chainRegistry', {
   getChains: () => ipcRenderer.invoke('chain-registry:get-chains'),
   getTokens: (chainId) => ipcRenderer.invoke('chain-registry:get-tokens', chainId),

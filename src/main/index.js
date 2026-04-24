@@ -55,6 +55,7 @@ const { registerChainRegistryIpc } = require('./chain-registry');
 const { registerRpcManagerIpc } = require('./wallet/rpc-manager');
 const { registerDappPermissionsIpc } = require('./wallet/dapp-permissions');
 const { registerSwarmIpc } = require('./swarm/stamp-service');
+const { registerSwarmFunderIpc } = require('./swarm/swarm-funder-service');
 const { registerPublishIpc } = require('./swarm/publish-service');
 const { registerPublishHistoryIpc, closeDb: closePublishHistoryDb } = require('./swarm/publish-history');
 const { registerSwarmPermissionsIpc } = require('./swarm/swarm-permissions');
@@ -115,6 +116,7 @@ async function bootstrap() {
   registerRpcManagerIpc();
   registerDappPermissionsIpc();
   registerSwarmIpc();
+  registerSwarmFunderIpc();
   registerPublishIpc();
   registerPublishHistoryIpc();
   registerSwarmPermissionsIpc();
