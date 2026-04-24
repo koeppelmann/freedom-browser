@@ -12,6 +12,14 @@ import { normalizeSwarmMode } from './swarm-readiness.js';
 import { fetchBeeJson } from './bee-api.js';
 import { openStampManager } from './stamp-manager.js';
 import { topUpXdai, topUpXbzz, GNOSIS_CHAIN_ID, XDAI_TOKEN_KEY, XBZZ_TOKEN_KEY } from './funding-actions.js';
+import {
+  fundNodeOneTx,
+  waitForTx,
+  getSpotXdaiPerBzz,
+  expectedBzzOut,
+  formatBzz,
+  formatXdai,
+} from './swarm-funder-client.js';
 
 const POLL_MS = 5000;
 
@@ -30,6 +38,42 @@ let stepFundXbzzBtn;
 let stepStamps;
 let stepStampsBtn;
 
+// One-click setup DOM references
+let oneClickPanel;
+let oneClickPresets;
+let oneClickQuote;
+let oneClickBtn;
+let oneClickStatus;
+let oneClickError;
+let oneClickDetail;
+
+// Amounts in xDAI wei
+const ONECLICK_PRESETS = [
+  {
+    key: 'minimal',
+    label: 'Try it out',
+    desc: '0.25 xDAI',
+    xdaiForSwap: 200000000000000000n, // 0.2
+    xdaiForBee: 50000000000000000n,   //  0.05
+  },
+  {
+    key: 'recommended',
+    label: 'Recommended',
+    desc: '0.65 xDAI',
+    xdaiForSwap: 600000000000000000n, // 0.6
+    xdaiForBee: 50000000000000000n,   // 0.05
+  },
+  {
+    key: 'generous',
+    label: 'Generous',
+    desc: '1.55 xDAI',
+    xdaiForSwap: 1500000000000000000n, // 1.5
+    xdaiForBee: 50000000000000000n,    // 0.05
+  },
+];
+
+let selectedPresetKey = 'recommended';
+let cachedSpot = null;
 let pollInterval = null;
 let cachedBeeWalletAddress = null;
 let lastEvaluation = null;
@@ -74,6 +118,180 @@ export function initPublishSetup() {
   stepLightModeBtn?.addEventListener('click', () => handleSwitchToLightMode());
   stepFundXbzzBtn?.addEventListener('click', () => handleFundXbzz());
   stepStampsBtn?.addEventListener('click', () => handleBuyStamps());
+
+  // One-click setup
+  oneClickPanel = document.getElementById('publish-oneclick');
+  oneClickPresets = document.getElementById('publish-oneclick-presets');
+  oneClickQuote = document.getElementById('publish-oneclick-quote');
+  oneClickBtn = document.getElementById('publish-oneclick-btn');
+  oneClickStatus = document.getElementById('publish-oneclick-status');
+  oneClickError = document.getElementById('publish-oneclick-error');
+  oneClickDetail = document.getElementById('publish-oneclick-detail');
+
+  buildOneClickPresets();
+  oneClickBtn?.addEventListener('click', () => handleOneClick());
+}
+
+function buildOneClickPresets() {
+  if (!oneClickPresets) return;
+  oneClickPresets.innerHTML = '';
+  ONECLICK_PRESETS.forEach((p) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'publish-oneclick-preset';
+    btn.dataset.key = p.key;
+    if (p.key === selectedPresetKey) btn.classList.add('selected');
+    const label = document.createElement('span');
+    label.className = 'publish-oneclick-preset-label';
+    label.textContent = p.label;
+    const desc = document.createElement('span');
+    desc.className = 'publish-oneclick-preset-desc';
+    desc.textContent = p.desc;
+    btn.appendChild(label);
+    btn.appendChild(desc);
+    btn.addEventListener('click', () => selectOneClickPreset(p.key));
+    oneClickPresets.appendChild(btn);
+  });
+}
+
+function selectOneClickPreset(key) {
+  selectedPresetKey = key;
+  oneClickPresets?.querySelectorAll('.publish-oneclick-preset').forEach((b) => {
+    b.classList.toggle('selected', b.dataset.key === key);
+  });
+  refreshOneClickQuote();
+}
+
+function getSelectedPreset() {
+  return ONECLICK_PRESETS.find((p) => p.key === selectedPresetKey) || ONECLICK_PRESETS[1];
+}
+
+async function refreshOneClickQuote() {
+  if (!oneClickQuote) return;
+  const p = getSelectedPreset();
+  try {
+    if (cachedSpot === null) {
+      cachedSpot = await getSpotXdaiPerBzz();
+    }
+    const bzzOut = expectedBzzOut(p.xdaiForSwap, cachedSpot);
+    const totalXdai = p.xdaiForSwap + p.xdaiForBee;
+    oneClickQuote.textContent =
+      `Swap ${formatXdai(p.xdaiForSwap)} xDAI  →  ~${formatBzz(bzzOut)} xBZZ\n` +
+      `Forward ${formatXdai(p.xdaiForBee)} xDAI to Bee wallet\n` +
+      `Total from main wallet: ${formatXdai(totalXdai)} xDAI + gas`;
+    oneClickQuote.classList.remove('hidden');
+  } catch (err) {
+    oneClickQuote.textContent = `Quote unavailable: ${err.message || 'network error'}`;
+    oneClickQuote.classList.remove('hidden');
+  }
+}
+
+async function handleOneClick() {
+  if (!oneClickBtn) return;
+
+  const beeWallet = getBeeWalletAddress();
+  if (!beeWallet) {
+    showOneClickError('Bee wallet address not available. Start the Swarm node first.');
+    return;
+  }
+
+  const p = getSelectedPreset();
+  const totalXdai = p.xdaiForSwap + p.xdaiForBee;
+
+  // Pre-check main wallet xDAI balance.
+  const mainXdaiStr = walletState.currentBalances[XDAI_TOKEN_KEY]?.raw || '0';
+  const mainXdai = BigInt(mainXdaiStr);
+  if (mainXdai < totalXdai) {
+    showOneClickError(
+      `Main wallet needs ${formatXdai(totalXdai)} xDAI; found ${formatXdai(mainXdai.toString())}.`
+    );
+    return;
+  }
+
+  hideOneClickError();
+  oneClickBtn.disabled = true;
+  setOneClickStatus('Signing transaction…');
+
+  try {
+    const res = await fundNodeOneTx({
+      beeWallet,
+      xdaiForSwap: p.xdaiForSwap,
+      xdaiForBee: p.xdaiForBee,
+      slippageBps: 500,
+    });
+
+    setOneClickStatus(`Sent. Waiting for confirmation… (${res.hash.slice(0, 10)}…)`);
+    // Fire-and-forget await — UI remains on the setup screen; banner updates on receipt.
+    await waitForTx(res.hash);
+    setOneClickStatus('Funded. Bee will deploy the chequebook and sync postage automatically.');
+
+    // Switch to light mode without a separate user action.
+    await handleSwitchToLightMode();
+
+    // Kick a refresh.
+    clearBeeWalletCache();
+    setTimeout(() => refreshChecklist(), 2000);
+  } catch (err) {
+    console.error('[PublishSetup] One-click failed:', err);
+    showOneClickError(err?.message || 'Transaction failed');
+    setOneClickStatus('');
+  } finally {
+    oneClickBtn.disabled = false;
+  }
+}
+
+function setOneClickStatus(msg) {
+  if (!oneClickStatus) return;
+  if (msg) {
+    oneClickStatus.textContent = msg;
+    oneClickStatus.classList.remove('hidden');
+  } else {
+    oneClickStatus.classList.add('hidden');
+  }
+}
+
+function showOneClickError(msg) {
+  if (!oneClickError) return;
+  oneClickError.textContent = msg;
+  oneClickError.classList.remove('hidden');
+}
+
+function hideOneClickError() {
+  oneClickError?.classList.add('hidden');
+}
+
+function updateOneClickVisibility(evaluation) {
+  if (!oneClickPanel) return;
+
+  // Show the one-click banner while the node still needs funding
+  // (i.e., chequebook not yet deployed, or xBZZ not yet present).
+  // Hide once both are satisfied — from that point the checklist covers
+  // only stamp purchase which happens inside the Bee API.
+  const needsFunding = !evaluation?.chequebookDeployed || !evaluation?.hasXbzz;
+  const nodeRunning = evaluation?.nodeState === 'running';
+
+  oneClickPanel.classList.toggle('hidden', !(needsFunding && nodeRunning));
+
+  // Keep detail label accurate.
+  if (oneClickDetail && needsFunding && nodeRunning) {
+    if (!evaluation?.hasXdai) {
+      oneClickDetail.textContent =
+        'Fund your Bee node in a single transaction from your main wallet: swap to xBZZ, forward xDAI for chequebook deploy, done.';
+    } else if (!evaluation?.hasXbzz) {
+      oneClickDetail.textContent =
+        'Fund your Bee node with xBZZ in one transaction from your main wallet.';
+    } else {
+      oneClickDetail.textContent =
+        'One-transaction swap + fund path.';
+    }
+  }
+
+  if (oneClickBtn) oneClickBtn.disabled = false;
+
+  // Refresh quote on first display.
+  if (needsFunding && nodeRunning && oneClickQuote && oneClickQuote.classList.contains('hidden')) {
+    refreshOneClickQuote();
+  }
 }
 
 export function openPublishSetup() {
@@ -109,6 +327,7 @@ async function refreshChecklist() {
   try {
     lastEvaluation = await evaluateSteps();
     renderSteps(lastEvaluation);
+    updateOneClickVisibility(lastEvaluation);
   } catch (err) {
     console.error('[PublishSetup] Failed to refresh checklist:', err);
   }

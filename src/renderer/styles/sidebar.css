@@ -1915,6 +1915,123 @@
   font-family: var(--font-mono, monospace);
 }
 
+/* One-click setup banner */
+.publish-oneclick {
+  margin: 0 0 20px 0;
+  padding: 14px 14px 12px;
+  background: rgba(26, 115, 232, 0.08);
+  border: 1px solid rgba(26, 115, 232, 0.25);
+  border-radius: 8px;
+}
+
+.publish-oneclick-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.publish-oneclick-detail {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+.publish-oneclick-presets {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.publish-oneclick-preset {
+  flex: 1;
+  padding: 8px 6px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  text-align: center;
+}
+
+.publish-oneclick-preset:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.publish-oneclick-preset.selected {
+  background: rgba(26, 115, 232, 0.14);
+  border-color: rgba(26, 115, 232, 0.45);
+}
+
+.publish-oneclick-preset-label {
+  display: block;
+  font-weight: 600;
+}
+
+.publish-oneclick-preset-desc {
+  display: block;
+  color: var(--muted);
+  margin-top: 2px;
+  font-size: 10px;
+}
+
+.publish-oneclick-quote {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-mono, monospace);
+  background: rgba(0, 0, 0, 0.15);
+  padding: 8px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  line-height: 1.45;
+}
+
+.publish-oneclick-btn {
+  width: 100%;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(26, 115, 232, 0.14);
+  border: 1px solid rgba(26, 115, 232, 0.4);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.publish-oneclick-btn:hover:not(:disabled) {
+  background: rgba(26, 115, 232, 0.22);
+}
+
+.publish-oneclick-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.publish-oneclick-status {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.publish-oneclick-error {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #ff6b6b;
+}
+
+.publish-oneclick-divider {
+  margin: 12px 0 -4px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 /* ============================================
    Stamp Manager
    ============================================ */
