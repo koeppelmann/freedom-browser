@@ -45,7 +45,13 @@ export async function prepareTx({ beeWallet, xdaiForSwap, xdaiForBee, slippageBp
 export async function fundNodeOneTx({ beeWallet, xdaiForSwap, xdaiForBee, slippageBps = 500 }) {
   const prepared = await prepareTx({ beeWallet, xdaiForSwap, xdaiForBee, slippageBps });
 
-  const activeAddress = await window.wallet.getActiveAddress();
+  const activeResp = await window.wallet.getActiveAddress();
+  const activeAddress = typeof activeResp === 'string'
+    ? activeResp
+    : activeResp?.address;
+  if (!activeAddress) {
+    throw new Error(activeResp?.error || 'No active wallet address');
+  }
   const gasEst = await window.wallet.estimateGas({
     from: activeAddress,
     to: prepared.to,
@@ -55,13 +61,21 @@ export async function fundNodeOneTx({ beeWallet, xdaiForSwap, xdaiForBee, slippa
   });
   // Normalize gas-estimate response shape (some handlers return {success,...}).
   let gasLimit;
-  if (gasEst && typeof gasEst === 'object' && 'gasLimit' in gasEst) {
-    if (gasEst.success === false) throw new Error(gasEst.error || 'Gas estimation failed');
-    gasLimit = gasEst.gasLimit;
-  } else if (typeof gasEst === 'string') {
+  if (typeof gasEst === 'string' || typeof gasEst === 'bigint' || typeof gasEst === 'number') {
     gasLimit = gasEst;
+  } else if (gasEst && typeof gasEst === 'object') {
+    if (gasEst.success === false) {
+      throw new Error(gasEst.error || gasEst.message || 'Gas estimation failed');
+    }
+    if (gasEst.gasLimit != null) {
+      gasLimit = gasEst.gasLimit;
+    } else if (gasEst.error) {
+      throw new Error(gasEst.error);
+    } else {
+      throw new Error(`Gas estimation returned no gasLimit: ${JSON.stringify(gasEst)}`);
+    }
   } else {
-    throw new Error('Gas estimation returned no gasLimit');
+    throw new Error('Gas estimation failed (empty response)');
   }
 
   const gasPrices = await window.wallet.getGasPrice(GNOSIS_CHAIN_ID);
